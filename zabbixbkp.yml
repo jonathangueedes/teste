@@ -1,0 +1,144 @@
+---
+- hosts: all
+  become: true
+  vars:
+    zabbix_mysql_version: '3.4.15'
+  tasks:
+
+  
+    - name: instalando repos zabbix
+      #ignore_errors: yes
+      yum:
+        state: present
+        name: "{{ item }}"
+
+      with_items: 
+        
+          - http://repo.zabbix.com/zabbix/3.4/rhel/7/x86_64/zabbix-release-3.4-1.el7.centos.noarch.rpm
+          - http://repo.mysql.com/yum/mysql-5.6-community/el/7/x86_64/mysql-community-server-5.6.42-2.el7.x86_64.rpm
+
+
+    - name: instala pacotes Iniciais
+      ignore_errors: yes
+      yum:
+        name: "{{ item }}"
+        state: present
+      with_items:
+          - epel-release
+          - php
+          - httpd
+          - centos-release-scl
+
+    - name: instala pacotes de dependencia
+      ignore_errors: yes
+      yum:
+        name: "{{ item }}"
+        state: present
+      with_items:
+          
+          - mcrypt
+          - MySQL-python
+          - php-mysql
+          - rh-python36
+          - php-mbstring
+          - php-gd
+          - php-xml
+          - libssh2
+          - php-bcmath
+          - php-ldap
+          - python-pip
+
+    
+    - name: instalando modulo PYMYSQL via PIP
+      pip: 
+        name: PYMYSQL
+
+   
+    - name: instalando pacotes
+      package: 
+        name: "{{ item }}"
+        update_cache: yes
+      with_items:
+        - mysql-community-server
+        - mysql-community-devel
+      notify: 
+        - restart mysqld
+
+
+    - name: crindo banco de dados
+      mysql_db:
+          name: zabbix
+          #login_user: root
+          #login_unix_socket: /var/run/mysqld/mysqld.sock
+          #logins_password:
+          state: present
+
+    
+
+    - name: 'Cria o usuário do MySQL'
+      mysql_user:
+        name: zabbix
+        password: 'zabbix'
+        priv: '*.*:ALL,GRANT'
+        state: present
+
+    - name: Add repository Zabbix
+      yum_repository:
+        name: Mysql
+        description: MSL YUM repo
+        baseurl: http://repo.zabbix.com/zabbix/3.4/rhel/7/x86_64/zabbix-release-3.4-1.el7.centos.noarch.rpm
+
+
+    - name: Install Zabbix
+      yum:
+        name: "{{ item }}"
+        state: latest
+      with_items: 
+          
+          - zabbix-get 
+          - zabbix-server-mysql 
+          - zabbix-web-mysql 
+          - zabbix-agent
+          
+
+    - name: Sample DB
+      unarchive: 
+          src: /usr/share/doc/zabbix-server-mysql-{{ zabbix_mysql_version }}/create.sql.gz
+          dest: /tmp/sample/create.sql
+          remote_src: yes
+      ignore_errors: yes
+
+
+    - name: Importando sample zabbix
+      mysql_db:
+          name: zabbix
+          state: import
+          target: /usr/share/doc/zabbix-server-mysql-{{ zabbix_mysql_version }}/create.sql
+      ignore_errors: yes
+
+
+    - name: Alterando o datetime zone do php
+      replace:
+        path: /etc/php.ini
+        regexp: ";date.timezone ="
+        replace: "date.timezone = America/Sao_Paulo"
+      notify: restart apache
+
+
+
+  handlers:
+    - name: restart mysqld
+      service:
+          name: mysqld
+          state: restarted
+
+    - name: start mysqld
+      service:
+          name: mysqld
+          state: started
+
+    - name: restart apache
+      service:
+          name: httpd
+          state: restarted
+

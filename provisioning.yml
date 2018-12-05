@@ -1,0 +1,111 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: instala pacotes de dependencia
+      yum:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - php
+        - epel-release
+        - httpd
+        - http://repo.mysql.com/yum/mysql-5.6-community/el/7/x86_64/mysql-community-server-5.6.42-2.el7.x86_64.rpm
+        - php-gd
+        - libssh2
+        - mcrypt
+        - MySQL-python
+        - php-mysql
+        - centos-release-scl
+        - rh-python36
+
+    #- name: habilitando python 3.6 para comandos no banco
+    #  shell:  scl enable rh-python36 bash
+    #  args: 
+    #    executable: /bin/bash
+
+    #- name: instalando modulo PYMYSQL via PIP
+    #  pip: 
+    #    name: PYMYSQL
+    #    executable: pip-9.0.1
+
+    - name: instalando pacotes
+      package: 
+        name: "{{ item }}"
+        update_cache: yes
+      with_items:
+        - mysql-community-server
+        - mysql-community-devel
+      notify: 
+        - start mysqld
+
+
+    - name: crindo banco de dados
+      mysql_db:
+          name: wordpress_db
+          login_user: root
+          #login_unix_socket: /var/run/mysqld/mysqld.sock
+          #logins_password:
+          state: present
+
+    - name: 'Cria o usuário do MySQL'
+      mysql_user:
+        name: wordpress_user
+        password: 12345
+        priv: '*.*:ALL,GRANT'
+        state: present
+
+    - name: Download wordpress package
+      get_url:
+        url: https://wordpress.org/latest.tar.gz
+        dest: /tmp/wordpress.tar.gz
+
+    - name: Extrair wordpress
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: '/var/www/'
+        remote_src: yes
+
+    - name: copiando sample para a pasta do apache
+      copy:
+          src: /var/www/wordpress/wp-config-sample.php
+          dest: /var/www/wordpress/wp-config.php
+          remote_src: yes
+
+    - name: configurando o arquivo do wordpress
+      replace:
+          path: /var/www/wordpress/wp-config.php
+          regexp: "{{ item.regex }}"
+          replace: "{{ item.value }}"
+          backup: yes
+      with_items:
+        - {regex: database_name_here, value: wordpress_db}
+        - {regex: username_here, value: wordpress_user}
+        - {regex: password_here, value: 12345}
+
+    - name: adicionando o arquivo de configuração do apache
+      copy:
+        src: 'files/httpd.conf'
+        dest: '/etc/httpd/conf/httpd.conf'
+      notify: 
+        - restart apache
+
+
+
+
+  handlers:
+    - name: restart mysqld
+      service:
+          name: mysqld
+          state: restarted
+
+    - name: start mysqld
+      service:
+          name: mysqld
+          state: restarted
+
+    - name: restart apache
+      service:
+          name: httpd
+          state: restarted
+
